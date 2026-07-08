@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and outputs
+logs/
+outputs/
+results/
+checkpoints/
+wandb/
+runs/
+
+# Large data
+data/
+datasets/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.pkl
+*.npy
+*.npz
+
+# Kubernetes / secrets
+kubeconfig
+config
+*.secret.yaml
+*secret*
+*.key
+*.pem
+
+# Editor
+.vscode/
+.idea/
