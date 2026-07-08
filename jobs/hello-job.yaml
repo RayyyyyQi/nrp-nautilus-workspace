@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello-nautilus-test
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hello
+          image: python:3.11-slim
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, time
+              print("Hello from NRP Nautilus!")
+              print("Current working directory:", os.getcwd())
+              print("Test completed successfully.")
+          resources:
+            requests:
+              cpu: "1"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
