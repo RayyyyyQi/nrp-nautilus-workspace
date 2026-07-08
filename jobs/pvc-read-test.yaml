@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pvc-read-test
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pvc-read
+          image: python:3.11-slim
+          command: ["python", "-c"]
+          args:
+            - |
+              from pathlib import Path
+
+              p = Path("/mnt/pvc/hello-from-ray.txt")
+              print("Checking file:", p)
+
+              if not p.exists():
+                  raise FileNotFoundError("PVC file was not found.")
+
+              print("File exists.")
+              print("File content:")
+              print(p.read_text())
+              print("PVC persistence test completed successfully.")
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: test-storage
+              mountPath: /mnt/pvc
+      volumes:
+        - name: test-storage
+          persistentVolumeClaim:
+            claimName: ray-pvc-test

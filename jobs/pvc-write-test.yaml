@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pvc-write-test
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pvc-write
+          image: python:3.11-slim
+          command: ["python", "-c"]
+          args:
+            - |
+              from pathlib import Path
+              import datetime
+
+              p = Path("/mnt/pvc/hello-from-ray.txt")
+              p.write_text(
+                  "Hello from PVC test!\n"
+                  f"Written at: {datetime.datetime.utcnow().isoformat()} UTC\n"
+              )
+
+              print("Wrote file:", p)
+              print("File content:")
+              print(p.read_text())
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: test-storage
+              mountPath: /mnt/pvc
+      volumes:
+        - name: test-storage
+          persistentVolumeClaim:
+            claimName: ray-pvc-test
