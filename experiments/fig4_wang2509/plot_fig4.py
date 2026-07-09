@@ -21,10 +21,14 @@ def plot_one_step(csv_path: str, out_path: str):
     plt.figure(figsize=(8, 5.5))
 
     # Visible plotting range.
-    # We show down to 1e-2 instead of 0, because log-scale cannot display 0.
-    x_min = 1e-2
+    # We want the left edge to start at 5 x 10^-2, but we do NOT show that as a tick.
+    x_min_data = 1e-2
+    x_left_bound = 5e-2
     x_max = 1.5e1
-    y_min = 1e-6
+
+    # y-axis cannot show true 0 on log scale.
+    # Use 1e-7 as a fake zero position and label it as "0".
+    y_min = 1e-7
     y_max = 1.5e0
 
     styles = {
@@ -84,15 +88,13 @@ def plot_one_step(csv_path: str, out_path: str):
     def prepare_branch(sub):
         sub = sub.sort_values("eta").copy()
 
-        # Keep only descent branch up to the eta that minimizes loss.
-        # This removes the overshoot branch where loss increases again.
+        # Keep only the descent branch up to the eta that minimizes loss.
         idx_min = sub["loss"].idxmin()
         eta_min_loss = sub.loc[idx_min, "eta"]
         sub = sub[sub["eta"] <= eta_min_loss].copy()
 
-        # Do not clip x. Keep only the visible positive-loss range.
-        # This avoids artificial vertical lines at the left boundary.
-        sub = sub[(sub["loss"] >= x_min) & (sub["loss"] <= x_max)].copy()
+        # Keep only visible positive-loss range for plotting.
+        sub = sub[(sub["loss"] >= x_min_data) & (sub["loss"] <= x_max)].copy()
 
         # Log y cannot show true 0, so clip only Delta.
         sub["loss_plot"] = sub["loss"]
@@ -101,7 +103,6 @@ def plot_one_step(csv_path: str, out_path: str):
         return sub
 
     # 1. Plot merged GD line using decoupled GD only.
-    # Coupled GD is numerically the same, so we do not draw it twice.
     gd_sub = df[(df["regime"] == "decoupled") & (df["optimizer"] == "gd")]
     gd_sub = prepare_branch(gd_sub)
 
@@ -154,20 +155,21 @@ def plot_one_step(csv_path: str, out_path: str):
     plt.xscale("log")
     plt.yscale("log")
 
-    # Add a small buffer around the data range.
-    plt.xlim(8e-3, x_max)
-    plt.ylim(8e-7, y_max)
+    # Axis limits with a little buffer.
+    plt.xlim(x_left_bound, x_max)
+    plt.ylim(8e-8, y_max)
 
+    # Only show these three x ticks, in 10^k format.
     plt.xticks(
-        [1e-2, 1e-1, 1e0, 1e1],
-        [r"$10^{-2}$", r"$10^{-1}$", r"$10^{0}$", r"$10^{1}$"],
+        [1e-1, 1e0, 1e1],
+        [r"$10^{-1}$", r"$10^{0}$", r"$10^{1}$"],
     )
 
-    # True 0 cannot appear on log scale.
-    # We plot clipped Delta at 1e-6 and label it visually as 0.
+    # Paper-style y-axis labels:
+    # 1e+0, 1e-1, ..., 1e-6, 0
     plt.yticks(
-        [1e0, 1e-2, 1e-4, 1e-6],
-        [r"$10^{0}$", r"$10^{-2}$", r"$10^{-4}$", "0"],
+        [1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7],
+        ["1e+0", "1e-1", "1e-2", "1e-3", "1e-4", "1e-5", "1e-6", "0"],
     )
 
     plt.xlabel("Population Loss")
@@ -181,6 +183,7 @@ def plot_one_step(csv_path: str, out_path: str):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path, dpi=250)
     print(f"[done] wrote figure to {out_path}")
+    
 
 def main():
     parser = argparse.ArgumentParser()
