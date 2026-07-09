@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fig4-one-step
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fig4-one-step
+          image: python:3.11-slim
+          env:
+            - name: MPLBACKEND
+              value: "Agg"
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -eux
+
+              apt-get update
+              apt-get install -y git
+
+              pip install --no-cache-dir torch pandas matplotlib
+
+              git clone https://github.com/RayyyyyQi/nrp-nautilus-workspace.git /workspace/nautilus
+              cd /workspace/nautilus
+
+              mkdir -p /mnt/results/fig4_wang2509
+
+              python3 -m experiments.fig4_wang2509.run_one_step \
+                --L 200 \
+                --eta-min 1e-4 \
+                --eta-max 1e5 \
+                --num-etas 300 \
+                --out /mnt/results/fig4_wang2509/one_step.csv
+
+              python3 -m experiments.fig4_wang2509.plot_fig4 \
+                --one-step-csv /mnt/results/fig4_wang2509/one_step.csv \
+                --one-step-out /mnt/results/fig4_wang2509/fig4b_one_step.png
+
+              ls -lh /mnt/results/fig4_wang2509
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: results
+              mountPath: /mnt/results
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: adaptive-optimizers-results-pvc
