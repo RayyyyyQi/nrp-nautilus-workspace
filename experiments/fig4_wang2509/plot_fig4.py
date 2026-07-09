@@ -18,62 +18,122 @@ def label_name(regime, optimizer):
 def plot_one_step(csv_path: str, out_path: str):
     df = pd.read_csv(csv_path)
 
-    df["loss_plot"] = df["loss"].clip(lower=1e-12)
-    df["delta_plot"] = df["delta"].clip(lower=1e-12)
-
     plt.figure(figsize=(8, 5.5))
 
+    # Visible plotting range.
+    # We show down to 1e-2 instead of 0, because log-scale cannot display 0.
+    x_min = 1e-2
+    x_max = 1.5e1
+    y_min = 1e-6
+    y_max = 1.5e0
+
     styles = {
-        ("decoupled", "gd"): {
-            "label": "GD, decoupled",
-            "color": "#1f77b4",
-            "linestyle": "--",
-            "marker": "o",
-        },
-        ("coupled", "gd"): {
-            "label": "GD, coupled",
-            "color": "#1f77b4",
+        # GD: merged line because decoupled/coupled coincide.
+        ("gd_merged", "gd"): {
+            "label": "GD, De/Coupled",
+            "color": "#333333",
             "linestyle": "-",
             "marker": "o",
+            "linewidth": 2.1,
+            "alpha": 1.0,
+            "zorder": 3,
         },
+
+        # SignGD
         ("decoupled", "signgd"): {
             "label": "SignGD, decoupled",
             "color": "#ff7f0e",
             "linestyle": "--",
             "marker": "s",
+            "linewidth": 2.0,
+            "alpha": 1.0,
+            "zorder": 4,
         },
         ("coupled", "signgd"): {
             "label": "SignGD, coupled",
-            "color": "#d62728",
+            "color": "#8c564b",
             "linestyle": "-",
             "marker": "s",
+            "linewidth": 2.0,
+            "alpha": 1.0,
+            "zorder": 5,
+        },
+
+        # Muon
+        # Coupled blue is drawn first; decoupled red dashed is drawn later on top.
+        ("coupled", "muon"): {
+            "label": "Muon, coupled",
+            "color": "#1f77b4",
+            "linestyle": "-",
+            "marker": "^",
+            "linewidth": 1.7,
+            "alpha": 1.0,
+            "zorder": 2,
         },
         ("decoupled", "muon"): {
             "label": "Muon, decoupled",
-            "color": "#2ca02c",
+            "color": "#d62728",
             "linestyle": "--",
             "marker": "^",
-        },
-        ("coupled", "muon"): {
-            "label": "Muon, coupled",
-            "color": "#9467bd",
-            "linestyle": "-",
-            "marker": "^",
+            "linewidth": 2.1,
+            "alpha": 1.0,
+            "zorder": 7,
         },
     }
 
+    def prepare_branch(sub):
+        sub = sub.sort_values("eta").copy()
+
+        # Keep only descent branch up to the eta that minimizes loss.
+        # This removes the overshoot branch where loss increases again.
+        idx_min = sub["loss"].idxmin()
+        eta_min_loss = sub.loc[idx_min, "eta"]
+        sub = sub[sub["eta"] <= eta_min_loss].copy()
+
+        # Do not clip x. Keep only the visible positive-loss range.
+        # This avoids artificial vertical lines at the left boundary.
+        sub = sub[(sub["loss"] >= x_min) & (sub["loss"] <= x_max)].copy()
+
+        # Log y cannot show true 0, so clip only Delta.
+        sub["loss_plot"] = sub["loss"]
+        sub["delta_plot"] = sub["delta"].clip(lower=y_min, upper=1e0)
+
+        return sub
+
+    # 1. Plot merged GD line using decoupled GD only.
+    # Coupled GD is numerically the same, so we do not draw it twice.
+    gd_sub = df[(df["regime"] == "decoupled") & (df["optimizer"] == "gd")]
+    gd_sub = prepare_branch(gd_sub)
+
+    style = styles[("gd_merged", "gd")]
+    plt.plot(
+        gd_sub["loss_plot"],
+        gd_sub["delta_plot"],
+        label=style["label"],
+        color=style["color"],
+        linestyle=style["linestyle"],
+        linewidth=style["linewidth"],
+        marker=style["marker"],
+        markersize=4,
+        markevery=12,
+        alpha=style["alpha"],
+        zorder=style["zorder"],
+    )
+
+    # 2. Plot SignGD and Muon.
+    # Important order:
+    # - Muon coupled blue first
+    # - Muon decoupled red dashed later, with higher zorder
     order = [
-        ("decoupled", "gd"),
-        ("coupled", "gd"),
         ("decoupled", "signgd"),
         ("coupled", "signgd"),
-        ("decoupled", "muon"),
         ("coupled", "muon"),
+        ("decoupled", "muon"),
     ]
 
     for regime, optimizer in order:
         sub = df[(df["regime"] == regime) & (df["optimizer"] == optimizer)]
-        sub = sub.sort_values("eta")
+        sub = prepare_branch(sub)
 
         style = styles[(regime, optimizer)]
 
@@ -83,26 +143,44 @@ def plot_one_step(csv_path: str, out_path: str):
             label=style["label"],
             color=style["color"],
             linestyle=style["linestyle"],
-            linewidth=2.6,
+            linewidth=style["linewidth"],
             marker=style["marker"],
             markersize=4,
-            markevery=30,
-            alpha=0.95,
+            markevery=12,
+            alpha=style["alpha"],
+            zorder=style["zorder"],
         )
 
     plt.xscale("log")
     plt.yscale("log")
+
+    # Add a small buffer around the data range.
+    plt.xlim(8e-3, x_max)
+    plt.ylim(8e-7, y_max)
+
+    plt.xticks(
+        [1e-2, 1e-1, 1e0, 1e1],
+        [r"$10^{-2}$", r"$10^{-1}$", r"$10^{0}$", r"$10^{1}$"],
+    )
+
+    # True 0 cannot appear on log scale.
+    # We plot clipped Delta at 1e-6 and label it visually as 0.
+    plt.yticks(
+        [1e0, 1e-2, 1e-4, 1e-6],
+        [r"$10^{0}$", r"$10^{-2}$", r"$10^{-4}$", "0"],
+    )
+
     plt.xlabel("Population Loss")
     plt.ylabel(r"$\Delta(W)$")
     plt.title("Figure 4(b) reproduction: one-step optimization")
+
     plt.grid(True, which="both", alpha=0.25)
-    plt.legend(fontsize=8, framealpha=0.9)
+    plt.legend(fontsize=8, framealpha=0.95)
     plt.tight_layout()
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path, dpi=250)
     print(f"[done] wrote figure to {out_path}")
-
 
 def main():
     parser = argparse.ArgumentParser()

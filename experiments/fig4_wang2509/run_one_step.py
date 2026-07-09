@@ -8,6 +8,7 @@ from experiments.fig4_wang2509.config import DEFAULT_CONFIG, make_prob_vector
 from experiments.fig4_wang2509.embeddings import make_embeddings
 from experiments.fig4_wang2509.model import init_W, loss_and_grad
 from experiments.fig4_wang2509.optimizers import get_direction
+from dataclasses import replace
 
 
 def eval_from_direction_logits(ZD: torch.Tensor, eta: float, p: torch.Tensor):
@@ -35,9 +36,10 @@ def main():
     parser.add_argument("--eta-min", type=float, default=1e-4)
     parser.add_argument("--eta-max", type=float, default=1e5)
     parser.add_argument("--num-etas", type=int, default=300)
+    parser.add_argument("--L", type=int, default=DEFAULT_CONFIG.L)
     args = parser.parse_args()
 
-    cfg = DEFAULT_CONFIG
+    cfg = replace(DEFAULT_CONFIG, L=args.L)
     torch.manual_seed(cfg.seed)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
