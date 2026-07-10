@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fig4-multi-step-muon-sweep-small
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fig4-multi-step-muon-sweep-small
+          image: python:3.11-slim
+          resources:
+            requests:
+              cpu: "2"
+              memory: "6Gi"
+            limits:
+              cpu: "2"
+              memory: "6Gi"
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+
+              apt-get update
+              apt-get install -y git
+
+              python -m pip install --upgrade pip
+              pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+              pip install --no-cache-dir pandas matplotlib
+
+              cd /tmp
+              git clone https://github.com/RayyyyyQi/nrp-nautilus-workspace.git repo
+              cd repo
+
+              mkdir -p /mnt/results/fig4_wang2509/muon_sweep_small
+
+              for ETA_MUON in 0.08 0.075 0.06 0.05 0.04
+              do
+                TAG=$(echo ${ETA_MUON} | tr '.' 'p')
+
+                echo "============================================================"
+                echo "Running eta_muon=${ETA_MUON}"
+                echo "============================================================"
+
+                OUT_CSV="/mnt/results/fig4_wang2509/muon_sweep_small/multi_step_smoother36_muon${TAG}_nautilus.csv"
+                OUT_PNG="/mnt/results/fig4_wang2509/muon_sweep_small/fig4c_multi_step_smoother36_muon${TAG}_nautilus.png"
+
+                python -m experiments.fig4_wang2509.run_multi_step \
+                  --steps 4000 \
+                  --stop-loss 2e-2 \
+                  --eta-gd 250 \
+                  --eta-signgd 0.15 \
+                  --eta-muon ${ETA_MUON} \
+                  --out "${OUT_CSV}"
+
+                OUT_CSV="${OUT_CSV}" OUT_PNG="${OUT_PNG}" python -c 'import os; from experiments.fig4_wang2509.plot_fig4 import plot_multi_step; plot_multi_step(os.environ["OUT_CSV"], os.environ["OUT_PNG"])'
+              done
+
+              echo "============================================================"
+              echo "All sweep outputs:"
+              ls -lh /mnt/results/fig4_wang2509/muon_sweep_small
+          volumeMounts:
+            - name: results
+              mountPath: /mnt/results
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: adaptive-optimizers-results-pvc
