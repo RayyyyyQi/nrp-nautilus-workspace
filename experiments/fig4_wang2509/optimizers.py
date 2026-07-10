@@ -1,45 +1,58 @@
 import torch
 
 
-def gd_direction(grad: torch.Tensor):
-    """
-    Standard gradient descent direction.
-    W <- W + eta * D, where D = -grad.
-    """
+def gd_direction(grad):
     return -grad
 
 
-def signgd_direction(grad: torch.Tensor):
-    """
-    SignGD / simplified Adam-like coordinate-wise normalized direction.
-    W <- W + eta * D, where D = -sign(grad).
-    """
+def signgd_direction(grad):
     return -torch.sign(grad)
 
 
-def muon_direction(grad: torch.Tensor, tol: float = 1e-12):
+def muon_direction(grad, tol=1e-12):
     """
-    Exact-SVD Muon direction.
+    Exact Muon / polar direction for -grad.
 
-    We apply polar map to the negative gradient:
-        G = -grad = U S V^T
-        D = U V^T over nonzero singular directions
+    Primary implementation:
+        G = U S V^T
+        polar(G) = U V^T on nonzero singular directions
 
-    Important:
-        Do not blindly use U @ Vh if rank-deficient.
-        We mask tiny singular values.
+    Fallback:
+        polar(G) = G (G^T G)^(-1/2)
+
+    The fallback is mathematically the same polar-map direction, but more
+    robust when torch.linalg.svd fails on ill-conditioned matrices.
     """
     G = -grad
-    U, S, Vh = torch.linalg.svd(G, full_matrices=False)
 
-    mask = S > tol
-    if mask.sum().item() == 0:
-        return torch.zeros_like(G)
+    try:
+        U, S, Vh = torch.linalg.svd(G, full_matrices=False)
+        mask = S > tol
 
-    return U[:, mask] @ Vh[mask, :]
+        if mask.sum().item() == 0:
+            return torch.zeros_like(G)
+
+        return U[:, mask] @ Vh[mask, :]
+
+    except torch._C._LinAlgError:
+        A = G.T @ G
+        A = 0.5 * (A + A.T)
+
+        evals, V = torch.linalg.eigh(A)
+        evals = torch.clamp(evals, min=0.0)
+
+        mask = evals > (tol ** 2)
+
+        if mask.sum().item() == 0:
+            return torch.zeros_like(G)
+
+        V_keep = V[:, mask]
+        inv_sqrt = torch.rsqrt(evals[mask])
+
+        return (G @ V_keep) @ (inv_sqrt[:, None] * V_keep.T)
 
 
-def get_direction(name: str, grad: torch.Tensor, tol: float = 1e-12):
+def get_direction(name, grad, tol=1e-12):
     name = name.lower()
 
     if name == "gd":
