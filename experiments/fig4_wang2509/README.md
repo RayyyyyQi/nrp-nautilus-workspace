@@ -1,30 +1,43 @@
-# Figure 4 Reproduction: Muon vs GD / SignGD
+# Figure 4 Reproduction and Diagnostics: Muon vs GD / SignGD
 
-This directory reproduces the Figure 4 toy associative memory experiments from the paper.
+This directory contains my reproduction and diagnostic study of Figure 4 from:
 
-The experiment studies a one-layer linear associative memory model
+**Muon Outperforms Adam in Tail-End Associative Memory Learning**
+
+The goal is not only to reproduce Figure 4(b)(c), but also to investigate two discrepancies observed during reproduction:
+
+1. Why pure SignGD in the support-decoupled identity setting gives a horizontal \(\Delta(W)\approx 0\) curve.
+2. Why Muon sometimes shows sudden jumps in \(\Delta(W)\) during multi-step optimization.
+
+---
+
+## 1. Original Figure 4 setting
+
+The one-layer associative memory model is
 
 \[
 f_W(E_k)=\mathrm{softmax}(\widetilde E^\top W E_k),
 \]
 
-with population loss
+with population cross-entropy loss
 
 \[
-L(W)=-\sum_{k=1}^K p_k\log [f_W(E_k)]_k,
+L(W)
+=
+-\sum_{k=1}^K p_k \log [f_W(E_k)]_k.
 \]
 
-and imbalance metric
+The imbalance metric is
 
 \[
-\Delta(W)=\max_k [f_W(E_k)]_k-\min_k [f_W(E_k)]_k.
+\Delta(W)
+=
+\max_k [f_W(E_k)]_k
+-
+\min_k [f_W(E_k)]_k.
 \]
 
-The goal is to compare GD, SignGD, and Muon under support-decoupled and support-coupled embeddings.
-
----
-
-## 1. Experiment setting
+Here \([f_W(E_k)]_k\) is the correct-class probability for fact \(k\).
 
 Default parameters:
 
@@ -36,14 +49,14 @@ L = 200
 dtype = float64
 ```
 
-The probability distribution is two-level:
+The probability vector is two-level:
 
 ```text
 p_k = alpha / L,              for k <= L
 p_k = (1 - alpha) / (K - L),  for k > L
 ```
 
-Embeddings:
+The embedding settings are:
 
 ```text
 support-decoupled:
@@ -60,24 +73,32 @@ Logit convention:
 ```text
 Z = Etilde.T @ W @ E
 Z[j, k] = Etilde[:, j]^T W E[:, k]
-softmax over rows j
+softmax over rows j for each query column k
+```
+
+Gradient convention:
+
+```python
+P = softmax(Z, dim=0)
+M = (P - I) * p[None, :]
+grad_W = Etilde @ M @ E.T
 ```
 
 Optimizers:
 
 ```text
-GD:     -grad
-SignGD: -sign(grad)
-Muon:   polar(-grad)
+GD:     D = -grad
+SignGD: D = -sign(grad)
+Muon:   D = polar(-grad)
 ```
 
-The Muon implementation uses SVD by default. I also added an eigendecomposition fallback for numerical robustness when `torch.linalg.svd` fails to converge.
+The Muon implementation uses exact SVD polar direction with an eigendecomposition fallback when SVD fails.
 
 ---
 
-## 2. Figure 4(b): one-step reproduction
+## 2. Original Figure 4(b): one-step reproduction
 
-### Local run
+Run:
 
 ```bash
 python3 -m experiments.fig4_wang2509.run_one_step \
@@ -90,96 +111,27 @@ python3 -m experiments.fig4_wang2509.run_one_step \
 python3 -m experiments.fig4_wang2509.plot_fig4
 ```
 
-Output:
+Main local outputs:
 
 ```text
 results/one_step.csv
 figures/fig4b_one_step.png
 ```
 
-### Nautilus verification
-
-Output:
+Nautilus verification outputs:
 
 ```text
 results/one_step_nautilus.csv
 figures/fig4b_one_step_nautilus.png
 ```
 
-The local and Nautilus one-step results are consistent.
+The local and Nautilus one-step results match.
 
 ---
 
-## 3. Figure 4(b): discrepancies from the paper plot
+## 3. Original Figure 4(c): multi-step reproduction
 
-There are two main differences compared with the paper plot.
-
-### 3.1 SignGD, support-decoupled
-
-In the support-decoupled setting,
-
-\[
-E=\widetilde E=I.
-\]
-
-With pure SignGD,
-
-```text
-D = -sign(grad),
-```
-
-the sign operation removes the frequency scale \(p_k\). Therefore, all facts receive almost the same sign-gradient margin, so
-
-\[
-\Delta(W)\approx 0.
-\]
-
-As a result, the SignGD support-decoupled curve appears as a horizontal line near zero, instead of forming a visible curve similar to Muon.
-
-### 3.2 SignGD, support-coupled
-
-I swept learning rates and also tested
-
-```text
-L = 198, 199, 200, 201
-```
-
-For pure SignGD, the best one-step coupled loss stayed around
-
-```text
-loss ≈ 0.27
-```
-
-so the curve could not extend toward loss \(0\) as in the original plot.
-
-This suggests that the paper implementation may use a slightly different SignGD convention, normalization, or optimizer detail.
-
----
-
-## 4. Figure 4(c): multi-step reproduction
-
-Multi-step updates use
-
-\[
-W_{t+1}=W_t+\eta D_t,
-\]
-
-where \(D_t\) is recomputed at every step.
-
-The plot uses population loss on the x-axis and \(\Delta(W)\) on the y-axis.
-
----
-
-## 5. Figure 4(c): final local result
-
-Final local version:
-
-```text
-results/multi_step_smoother36.csv
-figures/fig4c_multi_step_smoother36.png
-```
-
-Command:
+Final local multi-step run:
 
 ```bash
 python3 -m experiments.fig4_wang2509.run_multi_step \
@@ -191,249 +143,501 @@ python3 -m experiments.fig4_wang2509.run_multi_step \
   --out experiments/fig4_wang2509/results/multi_step_smoother36.csv
 ```
 
-Summary:
+Main local outputs:
+
+```text
+results/multi_step_smoother36.csv
+figures/fig4c_multi_step_smoother36.png
+```
+
+A clean Nautilus candidate with smaller Muon learning rate:
+
+```text
+results/multi_step_smoother36_muon0p08_nautilus.csv
+figures/fig4c_multi_step_smoother36_muon0p08_nautilus.png
+```
+
+Diagnostic jump cases:
+
+```text
+results/multi_step_smoother36_nautilus_rerun1.csv
+figures/fig4c_multi_step_smoother36_nautilus_rerun1.png
+
+results/multi_step_extreme_smooth.csv
+figures/fig4c_multi_step_extreme_smooth.png
+```
+
+---
+
+## 4. SignGD support-decoupled discrepancy
+
+### 4.1 Observation
+
+In my reproduction, pure SignGD in the support-decoupled setting gives
+
+\[
+\Delta(W)\approx 0.
+\]
+
+This appears as a horizontal line near zero.
+
+This is not a coding bug. Under the exact support-decoupled identity setting
+
+\[
+E=\widetilde E=I,
+\]
+
+the gradient column for fact \(k\) is scaled by \(p_k\):
+
+\[
+\nabla_{:,k}L(W)
+=
+p_k(P_{:,k}-e_k).
+\]
+
+Pure SignGD removes this positive scale:
+
+\[
+\operatorname{sign}(p_k(P_{:,k}-e_k))
+=
+\operatorname{sign}(P_{:,k}-e_k).
+\]
+
+Therefore all facts share the same SignGD dynamics, which implies
+
+\[
+[f_W(E_1)]_1
+=
+[f_W(E_2)]_2
+=
+\cdots
+=
+[f_W(E_K)]_K
+\]
+
+and hence
+
+\[
+\Delta(W)=0.
+\]
+
+This agrees with the theoretical intuition in Appendix D, Step 3 of the paper: under the support-decoupled identity setting, all triplets share the same dynamics and SignGD achieves balanced learning.
+
+---
+
+## 5. SignGD decoupled embedding ablation
+
+To test whether the horizontal SignGD curve is caused by support decoupling alone, I tested three support-decoupled embedding types.
+
+```text
+A. identity_decoupled
+
+   E = I
+   Etilde = I
+
+B. equal_block_decoupled
+
+   E and Etilde are tall matrices with disjoint blocks.
+   Every fact uses the same local coordinate pattern.
+
+C. hetero_block_decoupled
+
+   E and Etilde are still support-disjoint globally.
+   But different facts use different local coordinate geometry.
+```
+
+For example, with \(K=3\) and block size \(3\),
+
+\[
+E\in\mathbb{R}^{9\times 3}.
+\]
+
+The columns are globally support-disjoint:
+
+```text
+fact 1 support: coordinates 1,2,3
+fact 2 support: coordinates 4,5,6
+fact 3 support: coordinates 7,8,9
+```
+
+Thus \(E^\top E=I\), but \(E\) is a tall matrix, not a square orthogonal matrix.
+
+The key result:
+
+```text
+identity_decoupled:
+  SignGD Delta ≈ 0
+
+equal_block_decoupled:
+  SignGD Delta ≈ 0
+
+hetero_block_decoupled:
+  SignGD Delta becomes large and GD-like
+```
+
+Interpretation:
+
+```text
+Support decoupling alone is not sufficient to guarantee SignGD balance.
+
+Pure SignGD is coordinate-wise and is sensitive to local L1 coordinate geometry.
+
+The horizontal SignGD-decoupled curve comes from identity / symmetric decoupled geometry, not from support decoupling alone.
+```
+
+---
+
+## 6. GD / Muon comparison under tall decoupled embeddings
+
+I also tested GD and Muon under the same tall support-decoupled embeddings.
+
+Expected and observed behavior:
 
 ```text
 GD:
-  final_step = 323
-  final_loss ≈ 1.993776e-02
-  final_delta ≈ 8.010181e-02
-
-SignGD, decoupled:
-  final_step = 37
-  final_loss ≈ 1.496950e-02
-  final_delta ≈ 4.24e-14
-
-SignGD, coupled:
-  final_step = 37
-  final_loss ≈ 1.634240e-02
-  final_delta ≈ 9.978771e-02
+  identity_decoupled ≈ equal_block_decoupled ≈ hetero_block_decoupled
 
 Muon:
-  final_step = 109
-  final_loss ≈ 1.818892e-02
-  final_delta ≈ 1.36e-04
+  identity_decoupled ≈ equal_block_decoupled ≈ hetero_block_decoupled
+
+SignGD:
+  identity_decoupled ≈ equal_block_decoupled
+  hetero_block_decoupled differs strongly
 ```
 
-This is the main local Figure 4(c) reproduction result.
+Reason:
 
----
-
-## 6. Figure 4(c): Nautilus no-jump candidate
-
-The clean Nautilus no-jump candidate uses a slightly smaller Muon learning rate:
-
-```text
-results/multi_step_smoother36_muon0p08_nautilus.csv
-figures/fig4c_multi_step_smoother36_muon0p08_nautilus.png
-```
-
-Parameters:
-
-```text
-steps = 4000
-stop-loss = 2e-2
-eta-gd = 250
-eta-signgd = 0.15
-eta-muon = 0.08
-```
-
-Summary:
-
-```text
-Muon decoupled:
-  final_step = 136
-  final_loss ≈ 1.8553e-02
-  final_delta ≈ 1.39e-04
-
-Muon coupled:
-  final_step = 136
-  final_loss ≈ 1.8553e-02
-  final_delta ≈ 1.39e-04
-```
-
-Jump diagnostic:
-
-```text
-decoupled Muon jumps: Empty DataFrame
-coupled Muon jumps:   Empty DataFrame
-```
-
-This is the clean Nautilus verification candidate.
-
----
-
-## 7. Figure 4(c): diagnostic jump cases
-
-I kept two diagnostic jump cases because Muon sometimes shows sudden jumps in \(\Delta(W)\), even when the loss trajectory remains smooth.
-
-### 7.1 Nautilus jump diagnostic
-
-Files:
-
-```text
-results/multi_step_smoother36_nautilus_rerun1.csv
-figures/fig4c_multi_step_smoother36_nautilus_rerun1.png
-```
-
-Parameters:
-
-```text
-steps = 2000
-stop-loss = 2e-2
-eta-gd = 250
-eta-signgd = 0.15
-eta-muon = 0.1
-```
-
-Observation:
-
-```text
-Nautilus Muon decoupled shows a jump around:
-step ≈ 102
-loss ≈ 0.0363
-delta_ratio ≈ 9.54
-```
-
-A local run with the same hyperparameters was smooth, while Nautilus showed a jump.
-
-Local-vs-Nautilus comparison for the same parameters:
-
-```text
-loss max_abs_diff        ≈ 1.98e-08
-delta max_abs_diff       ≈ 2.32e-03
-correct_min max_abs_diff ≈ 1.49e-03
-correct_max max_abs_diff ≈ 8.25e-04
-```
-
-This means the population loss trajectories are essentially identical, but \(\Delta(W)\) differs because the max/min correct probabilities separate on Nautilus.
-
-### 7.2 Local jump diagnostic
-
-Files:
-
-```text
-results/multi_step_extreme_smooth.csv
-figures/fig4c_multi_step_extreme_smooth.png
-```
-
-Parameters:
-
-```text
-steps = 6000
-stop-loss = 2e-2
-eta-gd = 100
-eta-signgd = 0.05
-eta-muon = 0.075
-```
-
-Observation:
-
-```text
-Local Muon decoupled shows a jump around:
-step ≈ 100
-loss ≈ 0.4386
-delta_ratio ≈ 10.38
-```
-
-This suggests that the jump is not only a Nautilus issue; it can also occur locally for certain Muon learning rates.
-
----
-
-## 8. Interpretation of Muon jumps
-
-The Muon update uses the polar direction
+GD and Muon are invariant to these tall orthonormal-column representations in logit space, as long as
 
 \[
-D_t=\operatorname{polar}(-\nabla L(W_t)).
+E^\top E=I,
+\qquad
+\widetilde E^\top \widetilde E=I.
 \]
 
-If
+SignGD is not invariant because
 
 \[
--\nabla L(W_t)=U\Sigma V^\top,
+\operatorname{sign}(\widetilde E M E^\top)
 \]
 
-then Muon uses
+depends on the ambient coordinate representation.
 
-\[
-D_t=UV^\top.
-\]
+This supports the interpretation that the original SignGD discrepancy is about coordinate-wise geometry, not about the loss or probability vector alone.
 
-This operation ignores the singular values and keeps only singular vector directions.
-
-When the gradient has repeated, very close, or near-zero singular values, the polar direction can become numerically sensitive. Different linear algebra backends can choose slightly different singular vector bases inside nearly degenerate subspaces.
-
-The metric
-
-\[
-\Delta(W)=\max_k [f_W(E_k)]_k-\min_k [f_W(E_k)]_k
-\]
-
-is also sensitive because it depends on active max/min facts. Therefore, even if the population loss trajectory is stable, a small numerical difference in the Muon direction can produce a visible jump in \(\Delta(W)\).
-
-Current interpretation:
+### Scripts
 
 ```text
-The qualitative Figure 4(c) trend is reproducible:
-Muon keeps Delta(W) small,
-GD and coupled SignGD are more imbalanced,
-and decoupled SignGD remains near Delta(W)=0.
+run_signgd_decoupled_ablation.py
+run_decoupled_embedding_ablation_allopts.py
+plot_decoupled_embedding_ablation_allopts_onefig.py
+```
 
-However, Muon curves can show numerical sensitivity in this toy setting,
-especially under the max-min imbalance metric Delta(W).
+### Main outputs
+
+```text
+results/signgd_decoupled_ablation.csv
+figures/signgd_decoupled_ablation_one_step.png
+figures/signgd_decoupled_ablation_multi_step.png
+
+results/decoupled_embedding_ablation_allopts.csv
+figures/decoupled_embedding_ablation_allopts/
+figures/decoupled_embedding_ablation_allopts_onefig.png
+```
+
+### Run commands
+
+```bash
+python3 -m experiments.fig4_wang2509.run_signgd_decoupled_ablation \
+  --K 300 \
+  --L 60 \
+  --block-size 3 \
+  --eta-min 1e-3 \
+  --eta-max 1e2 \
+  --num-etas 160 \
+  --multi-eta 0.15 \
+  --multi-steps 80 \
+  --stop-loss 2e-2
+
+python3 -m experiments.fig4_wang2509.run_decoupled_embedding_ablation_allopts \
+  --K 300 \
+  --L 60 \
+  --block-size 3 \
+  --eta-gd 250 \
+  --eta-signgd 0.15 \
+  --eta-muon 0.1 \
+  --steps 120 \
+  --stop-loss 2e-2
+
+python3 -m experiments.fig4_wang2509.plot_decoupled_embedding_ablation_allopts_onefig
 ```
 
 ---
 
-## 9. Files kept
+## 7. Muon jump diagnostics
 
-### Results
+### 7.1 Observation
+
+In multi-step Muon runs, \(\Delta(W)\) sometimes shows a sudden jump, even though the population loss continues decreasing smoothly.
+
+This is not a loss optimization failure.
+
+The jump is better interpreted as a transient imbalance event caused by numerical sensitivity of the exact Muon polar/SVD direction near a near-degenerate singular region.
+
+### 7.2 Mechanism
+
+Muon uses the polar direction:
+
+\[
+-\nabla L(W_t)=U_t\Sigma_tV_t^\top,
+\]
+
+\[
+D_t=U_tV_t^\top.
+\]
+
+This operation removes singular-value magnitudes and keeps singular directions.
+
+When the gradient matrix has near-zero, repeated, or near-repeated singular values, the SVD basis may become numerically unstable. A tiny perturbation can then noticeably change the polar direction.
+
+The imbalance metric
+
+\[
+\Delta(W)
+=
+\max_k c_k-\min_k c_k
+\]
+
+only depends on the best and worst facts, so it can amplify small differences in individual correct-class probabilities.
+
+Therefore:
 
 ```text
-results/one_step.csv
-results/one_step_nautilus.csv
-
-results/multi_step_smoother36.csv
-results/multi_step_smoother36_muon0p08_nautilus.csv
-results/multi_step_smoother36_nautilus_rerun1.csv
-results/multi_step_extreme_smooth.csv
+polar/SVD direction instability
++ max-min Delta metric
+= visible Delta jump
 ```
 
-### Figures
+### 7.3 Diagnostic evidence
+
+I added a diagnostic script that records:
 
 ```text
-figures/fig4b_one_step.png
-figures/fig4b_one_step_nautilus.png
+loss
+Delta
+correct_min / correct_max / correct_mean / correct_std
+argmin_correct / argmax_correct
+relative polar direction change
+perturbation sensitivity
+tail singular values
+numerical rank under different thresholds
+```
 
-figures/fig4c_multi_step_smoother36.png
-figures/fig4c_multi_step_smoother36_muon0p08_nautilus.png
-figures/fig4c_multi_step_smoother36_nautilus_rerun1.png
-figures/fig4c_multi_step_extreme_smooth.png
+For `eta_muon=0.075`, the jump pattern is:
+
+```text
+step 99:
+  direction_change ≈ 1.75e-01
+  perturb_sensitivity ≈ 1.73e-01
+  numerical rank drops from 998 to 996
+
+step 100:
+  Delta jumps from ≈ 1.22e-03 to ≈ 1.27e-02
+  delta_ratio ≈ 10.38
+```
+
+For `eta_muon=0.08`, the same pattern appears later:
+
+```text
+step 125:
+  direction_change ≈ 1.74e-01
+  perturb_sensitivity ≈ 1.72e-01
+  numerical rank drops from 998 to 997
+
+step 126:
+  Delta jumps from ≈ 2.92e-04 to ≈ 2.37e-03
+  delta_ratio ≈ 8.11
+```
+
+This supports the mechanism:
+
+```text
+sensitive polar direction at step t
+→ update W_{t+1}
+→ Delta jump at step t+1
+```
+
+The filename `muon_nojump_eta0p08` is historical. In this diagnostic run, `eta_muon=0.08` also shows a jump, but later and smaller than the `eta_muon=0.075` case.
+
+---
+
+## 8. Decoupled vs coupled Muon jumps
+
+The direct cause is the same in both regimes:
+
+```text
+exact Muon polar/SVD direction can become sensitive near near-degenerate singular regions.
+```
+
+However, the trigger step and active max/min facts may differ between decoupled and coupled embeddings because the matrix representation, singular spectrum, and active facts differ.
+
+Therefore:
+
+```text
+decoupled and coupled can both jump,
+but they do not have to jump at the same step,
+and one may jump while the other does not.
+```
+
+The jump is not a theorem-level property and is not periodic.
+
+It depends on:
+
+```text
+eta
+precision
+SVD backend
+rank threshold
+fallback behavior
+embedding representation
+whether the trajectory hits a sensitive singular region
+```
+
+A run may have no visible jump, one jump, or multiple jumps.
+
+---
+
+## 9. Local vs Nautilus differences
+
+Local and Nautilus can have nearly identical loss trajectories but different \(\Delta(W)\) curves.
+
+The main discrepancy is not in the population loss. It is in:
+
+```text
+Delta(W)
+correct_min
+correct_max
+argmin_correct / argmax_correct
+Muon polar direction
+```
+
+Reason:
+
+```text
+loss is an average metric;
+Delta(W) is a max-min metric.
+```
+
+Near a polar/SVD sensitive step, tiny differences from different BLAS/LAPACK/SVD backends, CPU instructions, thread scheduling, or fallback behavior can choose different singular bases.
+
+This can cause one run to show a visible \(\Delta(W)\) jump while another run stays smooth, even if the loss trajectories are almost identical.
+
+---
+
+## 10. Muon diagnostic scripts and outputs
+
+Script:
+
+```text
+run_muon_jump_diagnostics.py
+```
+
+Main outputs:
+
+```text
+results/diagnostics/muon_jump_eta0p075.csv
+results/diagnostics/muon_jump_eta0p075.png
+
+results/diagnostics/muon_nojump_eta0p08.csv
+results/diagnostics/muon_nojump_eta0p08.png
+```
+
+Run commands:
+
+```bash
+python3 -m experiments.fig4_wang2509.run_muon_jump_diagnostics \
+  --K 999 \
+  --L 200 \
+  --eta-muon 0.075 \
+  --steps 180 \
+  --stop-loss 2e-2 \
+  --tol 1e-12 \
+  --noise-rel 1e-10 \
+  --out-prefix experiments/fig4_wang2509/results/diagnostics/muon_jump_eta0p075
+
+python3 -m experiments.fig4_wang2509.run_muon_jump_diagnostics \
+  --K 999 \
+  --L 200 \
+  --eta-muon 0.08 \
+  --steps 180 \
+  --stop-loss 2e-2 \
+  --tol 1e-12 \
+  --noise-rel 1e-10 \
+  --out-prefix experiments/fig4_wang2509/results/diagnostics/muon_nojump_eta0p08
 ```
 
 ---
 
-## 10. Status
+## 11. Current interpretation
 
-Current status:
+### SignGD
 
 ```text
-Figure 4(b): local + Nautilus complete.
-Figure 4(c): local final complete.
-Figure 4(c): Nautilus no-jump candidate complete.
-Figure 4(c): diagnostic Muon jump cases preserved.
+The horizontal SignGD-decoupled curve is theoretically justified for
+E = Etilde = I and pure SignGD.
+
+The discrepancy with the paper plot likely comes from implementation or plotting details,
+or from the paper curve not corresponding exactly to pure SignGD with exact identity decoupled embeddings.
 ```
 
-Main open question:
+### Muon
 
 ```text
-Is the original paper using pure SignGD, or a normalized / Adam-like variant?
+Muon is overall balanced, but not perfectly identical across all facts at every finite-precision step.
+
+The jump is a transient imbalance event caused by polar/SVD numerical sensitivity and amplified by Delta(W).
+
+This does not overturn the paper's qualitative conclusion because Muon still keeps Delta(W)
+much smaller than GD and coupled SignGD in the main reproduction.
 ```
 
-A second open question:
+---
+
+## 12. Open questions
+
+1. Is the paper's plotted SignGD exactly pure `sign(grad)`, or does it use Adam-style epsilon / normalization details?
+2. Is the support-decoupled plot generated with exact identity embeddings, or with a more general disjoint-support construction?
+3. Does the original Muon implementation use exact SVD polar direction, Newton-Schulz approximation, or a rank threshold different from this reproduction?
+4. Did the authors observe small \(\Delta(W)\) jumps under different learning rates or backends?
+5. Should \(\Delta(W)\) jumps be reported as max-min metric sensitivity rather than optimization failure?
+
+---
+
+## 13. Repository contents
+
+This directory now contains:
 
 ```text
-How should Muon polar-direction numerical sensitivity be handled or reported
-when Delta(W) is a max-min metric?
+Original Figure 4 reproduction:
+  run_one_step.py
+  run_multi_step.py
+  plot_fig4.py
+
+Embedding / model utilities:
+  config.py
+  embeddings.py
+  model.py
+  optimizers.py
+
+SignGD decoupled diagnostics:
+  run_signgd_decoupled_ablation.py
+  run_decoupled_embedding_ablation_allopts.py
+  plot_decoupled_embedding_ablation_allopts_onefig.py
+
+Muon jump diagnostics:
+  run_muon_jump_diagnostics.py
+
+Main outputs:
+  figures/
+  results/
 ```
