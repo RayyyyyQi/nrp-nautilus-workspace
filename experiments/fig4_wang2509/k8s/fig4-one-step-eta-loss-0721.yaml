@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fig4-one-step-eta-loss-0721
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: experiment
+          image: python:3.11-slim
+          env:
+            - name: MPLBACKEND
+              value: Agg
+            - name: MPLCONFIGDIR
+              value: /tmp/matplotlib
+          resources:
+            requests:
+              cpu: "2"
+              memory: "6Gi"
+            limits:
+              cpu: "2"
+              memory: "6Gi"
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              apt-get update
+              apt-get install -y git
+              python -m pip install --upgrade pip
+              pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+              pip install --no-cache-dir pandas matplotlib
+
+              git clone https://github.com/RayyyyyQi/nrp-nautilus-workspace.git /workspace/nautilus
+              cd /workspace/nautilus
+
+              OUT_DIR=/mnt/results/fig4_wang2509/7_21/nautilus
+              mkdir -p "${OUT_DIR}"
+
+              python -m experiments.fig4_wang2509.run_one_step \
+                --L 200 \
+                --eta-min 1e-8 \
+                --eta-max 1e8 \
+                --num-etas 2000 \
+                --out "${OUT_DIR}/one_step_eta_loss_wide_nautilus.csv"
+
+              python /opt/plotter/plot_one_step_eta_loss.py \
+                --csv "${OUT_DIR}/one_step_eta_loss_wide_nautilus.csv" \
+                --out-dir "${OUT_DIR}"
+          volumeMounts:
+            - name: results
+              mountPath: /mnt/results
+            - name: plotter
+              mountPath: /opt/plotter
+              readOnly: true
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: adaptive-optimizers-results-pvc
+        - name: plotter
+          configMap:
+            name: fig4-one-step-eta-loss-plotter-0721
