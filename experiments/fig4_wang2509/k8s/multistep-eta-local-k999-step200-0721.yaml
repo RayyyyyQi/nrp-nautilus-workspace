@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: multistep-eta-local-k999-step200-0721
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: [uicnrp-fiona.evl.uic.edu]
+      containers:
+        - name: sweep
+          image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+          env:
+            - name: MPLBACKEND
+              value: Agg
+            - name: MPLCONFIGDIR
+              value: /tmp/matplotlib
+          resources:
+            requests: {cpu: "4", memory: "16Gi", nvidia.com/gpu: "1"}
+            limits: {cpu: "4", memory: "16Gi", nvidia.com/gpu: "1"}
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              apt-get update
+              apt-get install -y git
+              pip install --no-cache-dir pandas matplotlib
+              git clone https://github.com/RayyyyyQi/nrp-nautilus-workspace.git /workspace/nautilus
+              cd /workspace/nautilus
+              export PYTHONPATH=/workspace/nautilus
+              OUT_DIR=/mnt/results/fig4_wang2509/7_21/nautilus/multistep_eta_local_K999_step200
+              CSV="${OUT_DIR}/multistep_eta_local_K999_step200.csv"
+              mkdir -p "${OUT_DIR}"
+              python /opt/sweep/run_multistep_eta_sweep.py \
+                --K 999 --L 200 --device cuda --num-etas 60 --steps 200 \
+                --eta-gd 1e3 1e6 \
+                --eta-signgd 1e-2 1e0 \
+                --eta-muon 1e0 1e2 \
+                --out "${CSV}"
+              python /opt/sweep/plot_multistep_eta_sweep.py \
+                --csv "${CSV}" --out-dir "${OUT_DIR}" --loss-floor 1e-16
+          volumeMounts:
+            - {name: results, mountPath: /mnt/results}
+            - {name: sweep-code, mountPath: /opt/sweep, readOnly: true}
+      volumes:
+        - name: results
+          persistentVolumeClaim: {claimName: adaptive-optimizers-results-pvc}
+        - name: sweep-code
+          configMap: {name: multistep-eta-local-k999-code-0721}

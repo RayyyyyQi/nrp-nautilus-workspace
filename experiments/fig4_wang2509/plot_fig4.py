@@ -40,7 +40,7 @@ def plot_one_step(csv_path: str, out_path: str):
             "marker": "o",
             "linewidth": 2.1,
             "alpha": 1.0,
-            "zorder": 3,
+            "zorder": 9,
         },
 
         # SignGD
@@ -294,7 +294,9 @@ def plot_multi_step(csv_path: str, out_path: str):
         color=style["color"],
         linestyle=style["linestyle"],
         linewidth=1.6,
-        marker=None,
+        marker=style["marker"],
+        markersize=4.5,
+        markevery=3,
         alpha=style["alpha"],
         zorder=style["zorder"],
     )
