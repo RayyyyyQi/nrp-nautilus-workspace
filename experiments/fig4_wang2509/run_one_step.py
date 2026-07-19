@@ -35,6 +35,9 @@ def main():
     parser.add_argument("--out", type=str, default="experiments/fig4_wang2509/results/one_step.csv")
     parser.add_argument("--eta-min", type=float, default=1e-4)
     parser.add_argument("--eta-max", type=float, default=1e5)
+    parser.add_argument("--eta-gd", type=float, nargs=2)
+    parser.add_argument("--eta-signgd", type=float, nargs=2)
+    parser.add_argument("--eta-muon", type=float, nargs=2)
     parser.add_argument("--num-etas", type=int, default=300)
     parser.add_argument("--L", type=int, default=DEFAULT_CONFIG.L)
     args = parser.parse_args()
@@ -45,12 +48,11 @@ def main():
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
     p = make_prob_vector(cfg)
-    eta_grid = torch.logspace(
-        torch.log10(torch.tensor(args.eta_min, dtype=torch.float64)),
-        torch.log10(torch.tensor(args.eta_max, dtype=torch.float64)),
-        args.num_etas,
-        dtype=torch.float64,
-    ).tolist()
+    eta_ranges = {
+        "gd": args.eta_gd or (args.eta_min, args.eta_max),
+        "signgd": args.eta_signgd or (args.eta_min, args.eta_max),
+        "muon": args.eta_muon or (args.eta_min, args.eta_max),
+    }
 
     rows = []
 
@@ -64,7 +66,17 @@ def main():
         print(f"  loss0={loss0.item():.6f}, delta0={delta0.item():.6e}", flush=True)
 
         for opt in ["gd", "signgd", "muon"]:
-            print(f"  optimizer={opt}", flush=True)
+            eta_lo, eta_hi = eta_ranges[opt]
+            eta_grid = torch.logspace(
+                torch.log10(torch.tensor(eta_lo, dtype=torch.float64)),
+                torch.log10(torch.tensor(eta_hi, dtype=torch.float64)),
+                args.num_etas,
+                dtype=torch.float64,
+            ).tolist()
+            print(
+                f"  optimizer={opt}, eta=[{eta_lo:.6g}, {eta_hi:.6g}]",
+                flush=True,
+            )
 
             D = get_direction(opt, grad0, tol=cfg.svd_tol)
 

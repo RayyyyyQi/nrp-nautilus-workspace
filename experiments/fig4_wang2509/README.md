@@ -4,7 +4,9 @@ This directory contains my reproduction and diagnostic study of Figure 4 from:
 
 **Muon Outperforms Adam in Tail-End Associative Memory Learning**
 
-The goal is not only to reproduce Figure 4(b)(c), but also to investigate two discrepancies observed during reproduction:
+The goal is not only to reproduce Figure 4(b)(c), but also to investigate the
+learning-rate selection, one-step versus multi-step behavior, and two
+discrepancies observed during reproduction:
 
 1. Why pure SignGD in the support-decoupled identity setting gives a horizontal \(\Delta(W)\approx 0\) curve.
 2. Why Muon sometimes shows sudden jumps in \(\Delta(W)\) during multi-step optimization.
@@ -479,7 +481,12 @@ The direct cause is the same in both regimes:
 exact Muon polar/SVD direction can become sensitive near near-degenerate singular regions.
 ```
 
-However, the trigger step and active max/min facts may differ between decoupled and coupled embeddings because the matrix representation, singular spectrum, and active facts differ.
+For the square orthogonal embeddings used here, coupled and decoupled Muon are
+equivalent in exact arithmetic after mapping them into the same logit space.
+Their singular values should therefore agree. In finite precision, their
+ambient matrix representations can nevertheless trigger different SVD or
+fallback behavior near a rank-deficient region, and their active max/min facts
+can then differ.
 
 Therefore:
 
@@ -641,3 +648,180 @@ Main outputs:
   figures/
   results/
 ```
+
+---
+
+## 14. Canonical 7/21 experiments
+
+This section supersedes the earlier common-range Figure 4(b) sweep and the
+manually tuned Figure 4(c) reproduction as the current report-facing result.
+The earlier artifacts remain useful as historical diagnostics, but should not
+be used as the main figures.
+
+Detailed notes:
+
+```text
+ONE_STEP_CONCLUSIONS_7_21.md
+MULTI_STEP_OBSERVATIONS_7_21.md
+```
+
+### 14.1 One-step eta selection
+
+Each optimizer uses its own eta interval because GD, SignGD, and Muon use
+different update normalizations. Coupled and decoupled use the same grid within
+each optimizer so representation sensitivity is not tuned away.
+
+| Optimizer | Eta interval | Observed one-step endpoint |
+| --- | ---: | --- |
+| GD | `[0.1, 176450.669959]` | first numerical-zero loss |
+| Muon | `[1e-4, 44.138992]` | first numerical-zero loss |
+| SignGD | `[1e-4, 24.026491]` | covers the coupled minimum |
+
+The upper endpoint is the first numerical floor, not the center of a wider
+range. Points beyond it only repeat `(loss, Delta)=(0,0)`.
+
+Canonical eta-loss plots:
+
+```text
+figures/7_21/local/stage1_one_step_eta/one_step_eta_loss_gd.png
+figures/7_21/local/stage1_one_step_eta/one_step_eta_loss_signgd.png
+figures/7_21/local/stage1_one_step_eta/one_step_eta_loss_muon.png
+```
+
+### 14.2 Canonical Figure 4(b)
+
+Local and Nautilus agree. GD and Muon coupled/decoupled curves coincide under
+the orthogonal representation change. SignGD coupled cannot reduce its
+one-step loss below approximately `0.26768`.
+
+For SignGD with `E = Etilde = I`, pure `sign(grad)` removes the positive fact
+frequency scale. Every fact receives the same correct-class margin, so
+
+\[
+\Delta(W_\eta)=0
+\qquad\text{for every }\eta\ge 0.
+\]
+
+This flat curve is expected, not an implementation error.
+
+Canonical standard and `1e-16` precision figures:
+
+```text
+figures/7_21/local/stage1_one_step_eta/
+figures/7_21/nautilus/stage1_one_step_eta/
+```
+
+### 14.3 Multi-step eta selection
+
+The K=300 sweep uses 300 log-spaced eta values in `[1e-8, 1e8]` and step
+budgets `{10, 50, 100, 200}`.
+
+| Optimizer | 10 steps | 50 steps | 100 steps | 200 steps |
+| --- | ---: | ---: | ---: | ---: |
+| GD | `5.4423e4` | `5.4423e4` | `5.4423e4` | `5.4423e4` |
+| Muon | `23.1499` | `23.1499` | `23.1499` | `23.1499` |
+| SignGD decoupled | `2.2275` | `0.44893` | `0.21434` | `0.11576` |
+| SignGD coupled | `2.8500` | `0.57438` | `0.27424` | `0.13094` |
+
+GD and Muon return the same plateau endpoint because these eta values already
+reach the numerical floor in approximately one and two updates. SignGD's
+selected eta changes approximately as `1 / T`.
+
+For K=999 at 200 steps, Muon's endpoint is eta-sensitive and non-monotone near
+the numerical floor. It reaches numerical zero for some eta values, but can
+leave that region as eta increases. This is not accurately described as Muon
+failing to converge for every eta.
+
+Canonical eta figures:
+
+```text
+figures/7_21/nautilus/stage2_multistep_eta/
+```
+
+### 14.4 Canonical Figure 4(c)
+
+The K=999 run uses:
+
+| Optimizer | Eta |
+| --- | ---: |
+| GD | `194149.194574` |
+| Muon | `22.695105` |
+| SignGD | `0.13` |
+
+These eta values are good under the terminal-loss criterion but poor for
+visualizing multi-step dynamics:
+
+```text
+GD reaches the numerical floor in one update.
+Muon reaches the numerical floor in two updates.
+SignGD decoupled takes about 162 updates and stays balanced.
+SignGD coupled takes about 195 updates and shows early imbalance followed by correction.
+```
+
+Therefore the current data distribution and model do not provide a meaningful
+one-step versus multi-step gap for GD or Muon. Artificially dividing the eta by
+200 would only slow movement along essentially the same direction; a meaningful
+follow-up should change the data distribution or model.
+
+Canonical Local/Nautilus standard and `1e-16` figures:
+
+```text
+figures/7_21/local/stage3_figure4c/
+figures/7_21/nautilus/stage3_figure4c/
+```
+
+### 14.5 Initial-direction control
+
+The frozen-direction experiment directly tests whether iterative direction
+updates matter:
+
+```text
+GD: one frozen initial-direction update reaches loss <= 1e-16.
+Muon: frozen and iterative runs both reach the floor in two updates.
+Muon iterative cosine to the initial direction remains about 0.999999999.
+SignGD coupled: the frozen direction stalls near loss 0.26798, while the
+iterative direction reaches the target around step 195.
+```
+
+Thus the initialization direction is sufficient for GD and Muon in this setup;
+SignGD coupled is the clear case where genuine multi-step direction adaptation
+matters.
+
+```text
+figures/7_21/local/stage3_figure4c/initial_direction_diagnostic_K999/
+```
+
+### 14.6 Updated Muon jump study
+
+The preserved Nautilus run contains a visible decoupled jump near step 102,
+while its loss agrees with Local to approximately `2e-8`. A fresh instrumented
+Local/Nautilus run did not reproduce the visible jump, but it did reproduce
+backend-dependent SVD behavior near the same rank-deficient region:
+
+```text
+normal numerical rank: 998 (one structural zero singular direction)
+fresh Local step 101: SVD failure and eigendecomposition fallback
+fresh Local/Nautilus update difference at step 101: about 6.96e-8
+next-step Delta difference: about 5.95e-13, too small for a visible jump
+```
+
+Coupled and decoupled are equivalent up to numerical precision in the fresh
+run: their usual update difference is approximately `1e-14` and their maximum
+prediction difference is approximately `1e-16`.
+
+The current evidence supports a run-sensitive numerical event near a
+rank-deficient polar/SVD region, not a stable loss-optimization failure. The
+exact preserved jump cannot be causally replayed because the old pod's complete
+SVD checkpoints and library build were not retained.
+
+Main diagnostic figures:
+
+```text
+figures/7_21/local/muon_jump_study/02_polar_instability_near_jump.png
+figures/7_21/local/muon_jump_cross_diagnostic/02_environment_direction_and_delta.png
+figures/7_21/local/muon_jump_cross_diagnostic/03_coupled_decoupled_two_metrics.png
+```
+
+The Local/Nautilus `.pt` checkpoint files are approximately 213 MB and 225 MB.
+They are intentionally retained locally and excluded from GitHub; the compact
+CSV summaries, scripts, and figures are sufficient for the repository.

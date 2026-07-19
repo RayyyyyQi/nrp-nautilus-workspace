@@ -21,11 +21,12 @@ def loss_delta_grad_correct(W, E, Et, p, cfg):
     softmax is over rows, i.e. dim=0
     """
     Z = logits(W, E, Et)
-    P = probabilities_from_logits(Z)
+    logP = torch.log_softmax(Z, dim=0)
+    P = torch.exp(logP)
 
     correct_probs = torch.diag(P)
 
-    loss = -(p * torch.log(correct_probs.clamp_min(cfg.eps))).sum()
+    loss = -(p * torch.diag(logP)).sum()
     delta = correct_probs.max() - correct_probs.min()
 
     I = torch.eye(cfg.K, device=W.device, dtype=W.dtype)
@@ -82,6 +83,8 @@ def main():
     parser.add_argument("--stop-loss", type=float, default=5e-2)
 
     parser.add_argument("--L", type=int, default=DEFAULT_CONFIG.L)
+    parser.add_argument("--K", type=int, default=DEFAULT_CONFIG.K)
+    parser.add_argument("--device", default=DEFAULT_CONFIG.device)
 
     # Baseline learning rates. These are reproduction choices and can be tuned.
     parser.add_argument("--eta-gd", type=float, default=2000.0)
@@ -90,7 +93,7 @@ def main():
 
     args = parser.parse_args()
 
-    cfg = replace(DEFAULT_CONFIG, L=args.L)
+    cfg = replace(DEFAULT_CONFIG, K=args.K, d=args.K, L=args.L, device=args.device)
 
     eta_by_optimizer = {
         "gd": args.eta_gd,

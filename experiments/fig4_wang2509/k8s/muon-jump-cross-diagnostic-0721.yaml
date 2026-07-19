@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: muon-jump-cross-diagnostic-0721
+  namespace: tianhaowang-ucsd
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: diagnostic
+          image: python:3.11-slim
+          resources:
+            requests: {cpu: "2", memory: "8Gi"}
+            limits: {cpu: "2", memory: "8Gi"}
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              apt-get update
+              apt-get install -y git
+              python -m pip install --upgrade pip
+              pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+              cd /tmp
+              git clone https://github.com/RayyyyyQi/nrp-nautilus-workspace.git repo
+              cd repo
+              cp /opt/diagnostic/run_muon_cross_diagnostics.py experiments/fig4_wang2509/run_muon_cross_diagnostics.py
+              mkdir -p /mnt/results/fig4_wang2509/muon_jump_cross_diagnostic_0721
+              python -m experiments.fig4_wang2509.run_muon_cross_diagnostics \
+                --K 999 --L 200 --steps 106 --eta 0.1 --tol 1e-12 \
+                --out /mnt/results/fig4_wang2509/muon_jump_cross_diagnostic_0721/diagnostic.csv
+          volumeMounts:
+            - {name: diagnostic-code, mountPath: /opt/diagnostic}
+            - {name: results, mountPath: /mnt/results}
+      volumes:
+        - name: diagnostic-code
+          configMap: {name: muon-jump-cross-diagnostic-code-0721}
+        - name: results
+          persistentVolumeClaim: {claimName: adaptive-optimizers-results-pvc}
